@@ -1,0 +1,3 @@
+# Windows masaüstü penceresi ve EXE paketleyici; çekirdek uygulama bunlara ihtiyaç duymaz.
+pywebview==6.0
+pyinstaller==6.16.0
