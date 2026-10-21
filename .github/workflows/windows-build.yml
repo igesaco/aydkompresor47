@@ -24,6 +24,14 @@ jobs:
       - name: Test and package
         shell: pwsh
         run: ./scripts/build-windows.ps1
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-test-logs
+          path: build/windows-tests.log
+          if-no-files-found: ignore
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         with:
           name: AYD-Kompresor-Windows

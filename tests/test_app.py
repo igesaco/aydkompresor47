@@ -5,6 +5,7 @@ import unittest
 import urllib.request
 import urllib.error
 from datetime import date
+from contextlib import closing
 from pathlib import Path
 from ayd.db import Database
 from ayd.domain import App,add_months,money
@@ -97,8 +98,12 @@ class DomainTests(unittest.TestCase):
         restored=App(Database(backup)).snapshot()
         self.assertEqual(restored['customers'][0]['balance'],10025)
         self.assertEqual(restored['stock'][0]['quantity'],3)
-        with sqlite3.connect(backup) as db:
+        # sqlite3.Connection.__exit__ commits/rolls back but does not close.
+        # Windows cannot remove the temporary backup while this handle is open.
+        with closing(sqlite3.connect(backup)) as db:
             self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0],'ok')
+        with self.assertRaises(sqlite3.ProgrammingError):
+            db.execute('SELECT 1')
     def test_edits_do_not_change_stock_quantities(self):
         self.app.mutate('stock',dict(sku='F-1',name='Yeni filtre',quantity=999,minimum=1,buy_price=1,sell_price=2),self.stock)
         self.assertEqual(self.app.snapshot()['stock'][0]['quantity'],5)

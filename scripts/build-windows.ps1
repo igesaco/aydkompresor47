@@ -32,8 +32,12 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not create the Python virtual environmen
 $VenvPython = Join-Path $PWD '.venv\Scripts\python.exe'
 & $VenvPython -m pip install -r requirements-desktop.txt
 if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
-& $VenvPython -m unittest discover -s tests -v
-if ($LASTEXITCODE -ne 0) { throw 'Tests failed. Packaging stopped.' }
+New-Item -ItemType Directory -Force -Path 'build' | Out-Null
+# Write unittest output to stdout so Windows PowerShell 5.1 does not treat
+# ordinary test progress on stderr as a terminating NativeCommandError.
+& $VenvPython -u -c "import sys, unittest; result = unittest.TextTestRunner(stream=sys.stdout, verbosity=2).run(unittest.defaultTestLoader.discover('tests')); sys.exit(0 if result.wasSuccessful() else 1)" | Tee-Object -FilePath 'build/windows-tests.log'
+$TestExitCode = $LASTEXITCODE
+if ($TestExitCode -ne 0) { throw 'Tests failed. See build/windows-tests.log. Packaging stopped.' }
 & $VenvPython -m PyInstaller --noconfirm --clean --onefile --windowed --name 'AYD-Kompresor' --add-data 'web;web' --collect-all webview desktop.py
 if ($LASTEXITCODE -ne 0) { throw 'EXE build failed.' }
 Write-Host "Hazir: $PWD\dist\AYD-Kompresor.exe"
