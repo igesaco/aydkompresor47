@@ -1,14 +1,40 @@
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
-if ($env:OS -ne 'Windows_NT') { throw 'Windows EXE paketi Windows üzerinde hazırlanmalıdır.' }
-py -3.12 -m venv .venv
-if ($LASTEXITCODE -ne 0) { throw 'Python 3.12 kurulumu bulunamadı.' }
-$Python = Join-Path $PWD '.venv\Scripts\python.exe'
-& $Python -m pip install -r requirements-desktop.txt
-if ($LASTEXITCODE -ne 0) { throw 'Paket kurulumu başarısız.' }
-& $Python -m unittest discover -s tests -v
-if ($LASTEXITCODE -ne 0) { throw 'Testler başarısız. Paketleme durduruldu.' }
-& $Python -m PyInstaller --noconfirm --clean --onefile --windowed --name 'AYD-Kompresor' --add-data 'web;web' --collect-all webview desktop.py
-if ($LASTEXITCODE -ne 0) { throw 'EXE oluşturulamadı.' }
-Write-Host "Hazır: $PWD\dist\AYD-Kompresor.exe"
-Write-Host 'Windows 10/11 üzerinde Microsoft Edge WebView2 Runtime gereklidir.'
+if ($env:OS -ne 'Windows_NT') { throw 'Build the Windows EXE on Windows.' }
+
+# Python installed without the optional py.exe launcher is supported too.
+$BuildPython = $null
+$BuildPythonArgs = @()
+foreach ($Candidate in @('py', 'python', 'python3')) {
+    $Command = Get-Command $Candidate -ErrorAction SilentlyContinue
+    if (-not $Command) { continue }
+    $CandidateArgs = @()
+    if ($Candidate -eq 'py') { $CandidateArgs = @('-3.12') }
+    try {
+        & $Command.Source @CandidateArgs -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)" 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $BuildPython = $Command.Source
+            $BuildPythonArgs = $CandidateArgs
+            break
+        }
+    } catch { continue }
+}
+if (-not $BuildPython) {
+    Write-Host ''
+    Write-Host 'Yerel EXE olusturmak icin Python 3.12 bulunamadi.' -ForegroundColor Yellow
+    Write-Host 'Python kurmadan kullanmak icin hazir EXE paketini GitHub Actions sayfasindan indirin:'
+    Write-Host 'https://github.com/igesaco/aydkompresor47/actions/workflows/windows-build.yml'
+    Write-Host 'Yerel derleme icin python.org adresinden Python 3.12 kurun; Add python.exe to PATH secenegini isaretleyin.'
+    throw 'Python 3.12 is required only for building locally, not for running the packaged EXE.'
+}
+& $BuildPython @BuildPythonArgs -m venv .venv
+if ($LASTEXITCODE -ne 0) { throw 'Could not create the Python virtual environment.' }
+$VenvPython = Join-Path $PWD '.venv\Scripts\python.exe'
+& $VenvPython -m pip install -r requirements-desktop.txt
+if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
+& $VenvPython -m unittest discover -s tests -v
+if ($LASTEXITCODE -ne 0) { throw 'Tests failed. Packaging stopped.' }
+& $VenvPython -m PyInstaller --noconfirm --clean --onefile --windowed --name 'AYD-Kompresor' --add-data 'web;web' --collect-all webview desktop.py
+if ($LASTEXITCODE -ne 0) { throw 'EXE build failed.' }
+Write-Host "Hazir: $PWD\dist\AYD-Kompresor.exe"
+Write-Host 'Hedef bilgisayarda Python gerekmez. Windows 10/11 ve Microsoft Edge WebView2 Runtime gereklidir.'

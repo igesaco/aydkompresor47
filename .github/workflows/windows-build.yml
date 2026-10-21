@@ -1,6 +1,16 @@
 name: Windows EXE
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ayd/**'
+      - 'web/**'
+      - 'tests/**'
+      - 'desktop.py'
+      - 'requirements-desktop.txt'
+      - 'scripts/build-windows.ps1'
+      - '.github/workflows/windows-build.yml'
 permissions:
   contents: read
 jobs:
@@ -19,3 +29,4 @@ jobs:
           name: AYD-Kompresor-Windows
           path: dist/AYD-Kompresor.exe
           if-no-files-found: error
+          retention-days: 30

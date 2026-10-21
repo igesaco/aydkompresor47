@@ -27,7 +27,7 @@ AYD_DATA_DIR=/workspace/aydkompresor47/.data python3 desktop.py --demo --browser
 
 Windows 10/11 ve Python 3.12 kurulu bilgisayarda `Windows-EXE-Olustur.bat` dosyasını çalıştırın. Script sanal ortamı kurar, testleri çalıştırır ve `dist/AYD-Kompresor.exe` üretir. EXE hedef bilgisayarda Python istemez; **Microsoft Edge WebView2 Runtime** gerektirir. WebView2 bulunmayan makinelerde Microsoft'un resmi kaynağından kurun. EXE kod imzalı değildir; imzalama sertifikası bu projede bulunmaz.
 
-Alternatif olarak depoyu GitHub'a aktardıktan sonra Actions → **Windows EXE** → **Run workflow** ile Windows derlemesini başlatıp artifact dosyasını indirin. Bu iş akışı elle çalıştırılır; GitHub'a yüklemek Windows derlemesini kendiliğinden başlatmaz.
+Alternatif olarak depoyu GitHub'a aktardıktan sonra Actions → **Windows EXE** → **Run workflow** ile Windows derlemesini başlatıp artifact dosyasını indirin. Uygulama veya paketleme dosyaları `main` dalına gönderildiğinde Windows derlemesi otomatik başlar; aynı iş akışı elle de çalıştırılabilir. Başarılı çalışmanın **Artifacts → AYD-Kompresor-Windows** paketini indirip ZIP içindeki EXE dosyasını çıkarın. GitHub hesabınızla giriş yapmanız gerekebilir. Hazır EXE kullanımı için Python kurmayın.
 
 **Linux ortamındaki testler Windows EXE'nin oluşturulduğunu veya Windows'ta açıldığını kanıtlamaz.** Windows derlemesi ve hedef bilgisayarda pencere açılışı ayrıca doğrulanmalıdır.
 
@@ -85,3 +85,7 @@ Tarayıcı uçtan uca testi: Playwright ve Chromium bulunan ortamda `python3 tes
 Servis geçmişi olan bir kompresörün müşteri bağlantısı, eski hesap kayıtlarını korumak için değiştirilemez. Makine devir işlemi bu sürümde ayrıca desteklenmez.
 
 ![Demo genel bakış](docs/genel-bakis.png)
+
+### Windows: “py is not recognized” hatası
+
+Bu mesaj uygulamanın değil, kaynak koddan EXE oluşturan aracın Python başlatıcısını bulamadığını gösterir. Güncel paketleme scripti `py -3.12`, `python` ve `python3` seçeneklerini kontrol eder. Yerel derleme için Python 3.12 gerekir. Kurulum yapmak istemiyorsanız [Windows derlemeleri](https://github.com/igesaco/aydkompresor47/actions/workflows/windows-build.yml) sayfasındaki son **yeşil** çalışmayı açın; **Artifacts → AYD-Kompresor-Windows** dosyasını indirin, ZIP’i çıkarın ve içindeki `AYD-Kompresor.exe` dosyasını açın. Bu dosya bilgisayarınızda Python istemez; WebView2 Runtime gerekir.
