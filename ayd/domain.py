@@ -257,18 +257,31 @@ class App:
                     rate=integer(i.get('tax_rate',20),0,100)
                     subtotal+=q*price
                     tax+=int((Decimal(q*price)*rate/100).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
-                    clean.append(dict(stock_id=integer(i['stock_id'],1) if i.get('stock_id') else None,description=text(i.get('description'),True),quantity=q,unit_price=price,tax_rate=rate))
+                    description=text(i.get('description'),True)
+                    # 'new': kalem için stok kartı bulunur ya da açılır; boş değer stok dışı kalemdir (nakliye, hizmet).
+                    sid=self.stock_for(db,supplier,description) if i.get('stock_id')=='new' else integer(i['stock_id'],1) if i.get('stock_id') else None
+                    clean.append(dict(stock_id=sid,description=description,quantity=q,unit_price=price,tax_rate=rate))
                 rid=self.save(db,'purchases',dict(supplier_id=supplier['id'],date=dt,document_no=text(p.get('document_no')),due_date=due_date,notes=text(p.get('notes')),subtotal=subtotal,tax=tax,total=subtotal+tax))
                 label=f'AL-{rid:04d}'
                 for i in clean:
                     self.save(db,'purchase_items',dict(purchase_id=rid,**i))
                     if i['stock_id']:
-                        # Alış stoğu artırır; birim alış fiyatı son alış maliyetiyle güncellenir.
-                        self.move_stock(db,i['stock_id'],i['quantity'],f"Alış {label} · {supplier['name']}")
-                        db.execute('UPDATE stock SET buy_price=? WHERE id=?',(i['unit_price'],i['stock_id']))
+                        self.receive(db,i['stock_id'],i['quantity'],i['unit_price'],f"Alış {label} · {supplier['name']}")
                 if subtotal+tax:
                     self.save(db,'supplier_ledger',dict(supplier_id=supplier['id'],date=dt,kind='Alış',amount=subtotal+tax,description=f"{label} alış"+(f" · {text(p.get('document_no'))}" if p.get('document_no') else ''),due_date=due_date,source=f'purchase:{rid}'))
                 return {'id':rid}
+            elif resource == 'purchase-item-stock':
+                # Stoğa bağlanmadan kaydedilmiş alış kalemini sonradan stoğa aktarır.
+                item=db.execute('SELECT i.*,p.supplier_id FROM purchase_items i JOIN purchases p ON p.id=i.purchase_id WHERE i.id=?',(record_id,)).fetchone()
+                if not item:
+                    raise ValueError('Alış kalemi bulunamadı.')
+                if item['stock_id']:
+                    raise ValueError('Bu kalem zaten stoğa eklenmiş.')
+                supplier=db.execute('SELECT * FROM suppliers WHERE id=?',(item['supplier_id'],)).fetchone()
+                sid=integer(p['stock_id'],1) if p.get('stock_id') else self.stock_for(db,supplier,item['description'])
+                db.execute('UPDATE purchase_items SET stock_id=? WHERE id=?',(sid,record_id))
+                self.receive(db,sid,item['quantity'],item['unit_price'],f"Alış AL-{item['purchase_id']:04d} · {supplier['name']}")
+                return {'id':sid}
             elif resource == 'delete':
                 table=p.get('table')
                 if table not in DELETABLE or not record_id:
@@ -345,6 +358,22 @@ class App:
             return rid
         cur=db.execute(f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?' for _ in fields)})",tuple(fields.values()))
         return cur.lastrowid
+
+    def stock_for(self,db,supplier,name):
+        '''Aynı adlı stok kartını döndürür; yoksa tedarikçiye bağlı yeni kart açar.'''
+        key=name.strip().casefold()
+        for s in db.execute('SELECT id,name FROM stock').fetchall():
+            if s['name'].strip().casefold()==key:
+                return s['id']
+        n=db.execute('SELECT COALESCE(MAX(id),0)+1 FROM stock').fetchone()[0]
+        while db.execute('SELECT 1 FROM stock WHERE sku=?',(f'TD-{n:04d}',)).fetchone():
+            n+=1
+        return self.save(db,'stock',dict(sku=f'TD-{n:04d}',name=name.strip(),category='Yedek parça',quantity=0,minimum=0,supplier_id=supplier['id']))
+
+    def receive(self,db,sid,quantity,unit_price,description):
+        # Alış stoğu artırır; birim alış fiyatı son alış maliyetiyle güncellenir.
+        self.move_stock(db,sid,quantity,description)
+        db.execute('UPDATE stock SET buy_price=? WHERE id=?',(unit_price,sid))
 
     def move_stock(self,db,sid,delta,description):
         cur=db.execute('UPDATE stock SET quantity=quantity+? WHERE id=? AND quantity+?>=0',(delta,sid,delta))

@@ -146,6 +146,25 @@ class DomainTests(unittest.TestCase):
         self.assertEqual(s['supplier_ledger'][0]['source'],'purchase:1')
         self.app.mutate('supplier-ledger',dict(supplier_id=sid,date='2026-01-20',kind='Ödeme',amount='252',description='Havale'))
         self.assertEqual(self.app.snapshot()['suppliers'][0]['balance'],0)
+    def test_purchase_of_new_product_opens_stock_card_and_reuses_it(self):
+        sid=self.supplier()
+        line=lambda q:dict(stock_id='new',description='Basınç şalteri',quantity=q,unit_price='120',tax_rate=20)
+        self.app.mutate('purchases',dict(supplier_id=sid,date='2026-01-10',items=[line(3),dict(stock_id='',description='Nakliye',quantity=1,unit_price='10')]))
+        self.app.mutate('purchases',dict(supplier_id=sid,date='2026-01-11',items=[dict(line(2),description=' basınç şalteri ')]))
+        s=self.app.snapshot()
+        card=[x for x in s['stock'] if x['name']=='Basınç şalteri']
+        self.assertEqual(len(card),1)
+        self.assertEqual((card[0]['quantity'],card[0]['buy_price'],card[0]['supplier_name']),(5,12000,'Anadolu Teknik'))
+        self.assertEqual(len(s['stock']),2)
+    def test_unlinked_purchase_line_can_be_added_to_stock_once(self):
+        sid=self.supplier()
+        self.app.mutate('purchases',dict(supplier_id=sid,date='2026-01-10',items=[dict(description='Kayış A-42',quantity=4,unit_price='30')]))
+        item=self.app.snapshot()['purchase_items'][0]['id']
+        self.app.mutate('purchase-item-stock',{},item)
+        with self.assertRaises(ValueError): self.app.mutate('purchase-item-stock',{},item)
+        s=self.app.snapshot()
+        self.assertEqual([(x['name'],x['quantity'],x['buy_price']) for x in s['stock'] if x['name']=='Kayış A-42'],[('Kayış A-42',4,3000)])
+        self.assertEqual(s['suppliers'][0]['balance'],14400)
     def test_failed_purchase_rolls_back(self):
         sid=self.supplier()
         with self.assertRaises(sqlite3.IntegrityError):
