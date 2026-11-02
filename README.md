@@ -1,4 +1,4 @@
-# AYD Kompresör · Atölye yönetimi
+# Aydemir Kompresör · Atölye yönetimi
 
 Kompresör satış ve tamir işletmeleri için Türkçe, yerel veri kullanan ilk çalışan sürüm. Müşteri, makine, servis, stok, cari hesap, proforma ve randevular aynı SQLite veritabanında tutulur. Arayüz hiçbir harici font, CDN veya bulut servisine ihtiyaç duymaz.
 
@@ -71,13 +71,13 @@ python3 -m unittest discover -s tests -v
 node --check web/app.js
 ```
 
-27 otomatik test gerçek SQLite üzerinde stok/cari atomikliği, proforma dönüşümü, mükerrer işlem koruması, yetersiz stok geri alma, tarih/KDV hesapları, öneriler, bakiye/vade uyarıları, yedekten açılış, tedarikçi alış/ödeme/uyarıları, sürüm 1 veritabanından geçiş, silme korumaları ve yerel HTTP oturum güvenliğini kapsar. Node yalnızca isteğe bağlı JavaScript sözdizimi kontrolünde kullanılır, uygulamanın çalışması için gerekli değildir.
+28 otomatik test gerçek SQLite üzerinde stok/cari atomikliği, proforma dönüşümü, mükerrer işlem koruması, yetersiz stok geri alma, tarih/KDV hesapları, öneriler, bakiye/vade uyarıları, yedekten açılış, tedarikçi alış/ödeme/uyarıları, sürüm 1 veritabanından geçiş, silme korumaları ve yerel HTTP oturum güvenliğini kapsar. Node yalnızca isteğe bağlı JavaScript sözdizimi kontrolünde kullanılır, uygulamanın çalışması için gerekli değildir.
 
 ## Mimari ve mobil altyapı
 
 `ayd/db.py` → SQLite şema ve tutarlı yedekleme. `ayd/domain.py` → arayüzden bağımsız iş kuralları ve işlemler. `ayd/server.py` → yerel JSON API ve statik arayüz. `web/` → bağımsız Türkçe HTML/CSS/JS arayüz. `desktop.py` → yerel sunucu, otomatik yedek ve masaüstü başlatıcısı.
 
-Tutarlar veritabanında **tam sayı kuruş** olarak saklanır; giriş Decimal ile çevrilir. KDV kalem bazında kuruşa yuvarlanır. Para birimi TL'dir. Veritabanı sürümü `PRAGMA user_version` ile izlenir (güncel: 2). Şema değişiklikleri `ayd/db.py` içindeki `MIGRATIONS` adımlarıyla uygulanır; eski bir veritabanı açıldığında önce `backups/migration-v1-ayd.sqlite3` kopyası alınır, ardından geçiş tek işlemde yapılır. Sürüm 1'deki serbest metin tedarikçi adları otomatik olarak tedarikçi kartlarına dönüştürülür.
+Tutarlar veritabanında **tam sayı kuruş** olarak saklanır; giriş Decimal ile çevrilir. KDV kalem bazında kuruşa yuvarlanır. Para birimi TL'dir. Veritabanı sürümü `PRAGMA user_version` ile izlenir (güncel: 3). Şema değişiklikleri `ayd/db.py` içindeki `MIGRATIONS` adımlarıyla uygulanır; eski bir veritabanı açıldığında önce `backups/migration-v1-ayd.sqlite3` kopyası alınır, ardından geçiş tek işlemde yapılır. Sürüm 1'deki serbest metin tedarikçi adları otomatik olarak tedarikçi kartlarına dönüştürülür.
 
 Mobil/bulut aşamasında domain katmanı korunabilir. Ancak bu yerel API doğrudan internete açılmaya hazır değildir: kimlik doğrulama, kullanıcı/işletme yetkileri, HTTPS, merkezi veritabanı, kimlik/çakışma yönetimi ve çevrimdışı senkronizasyon ayrıca geliştirilmelidir.
 

@@ -7,7 +7,7 @@ from ayd.server import data_directory,launch_server
 
 
 def main():
-    parser=argparse.ArgumentParser(description='AYD Kompresör · Atölye yönetimi')
+    parser=argparse.ArgumentParser(description='Aydemir Kompresör · Atölye yönetimi')
     parser.add_argument('--browser',action='store_true',help='Masaüstü penceresi yerine tarayıcı kullan')
     parser.add_argument('--headless',action='store_true',help='Tarayıcı açmadan yerel sunucuyu başlat')
     parser.add_argument('--demo',action='store_true',help='Ayrı bir örnek veri alanı kullan')
@@ -37,7 +37,7 @@ def main():
         try:
             import webview
             webview.settings['ALLOW_DOWNLOADS'] = True
-            webview.create_window('AYD Kompresör | Atölye yönetimi',url,width=1440,height=960,min_size=(1050,720))
+            webview.create_window('Aydemir Kompresör | Atölye yönetimi',url,width=1440,height=960,min_size=(1050,720))
             webview.start()
             server.shutdown()
             return

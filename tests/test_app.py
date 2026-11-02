@@ -7,7 +7,7 @@ import urllib.error
 from datetime import date
 from contextlib import closing
 from pathlib import Path
-from ayd.db import Database
+from ayd.db import Database,VERSION
 from ayd.domain import App,add_months,money
 from ayd.server import launch_server
 
@@ -201,13 +201,22 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(sorted(x['supplier_name'] for x in s['stock']),['','Anadolu Teknik','Anadolu Teknik'])
         self.assertTrue((Path(self.tmp.name)/'backups'/'migration-v1-ayd.sqlite3').exists())
         with closing(sqlite3.connect(self.path)) as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],2)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],VERSION)
+    def test_old_default_company_name_is_corrected_but_custom_name_kept(self):
+        for old,expected in [('AYD Kompresör','Aydemir Kompresör'),('Başka Firma','Başka Firma')]:
+            path=Path(self.tmp.name)/f'{len(old)}.sqlite3'
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript(V1_SCHEMA+"CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+                db.execute('INSERT INTO settings VALUES (?,?)',('company',old))
+                db.commit()
+            self.assertEqual(App(Database(path)).snapshot()['settings']['company'],expected)
+        self.assertEqual(App(Database(Path(self.tmp.name)/'yeni.sqlite3')).snapshot()['settings']['company'],'Aydemir Kompresör')
     def test_reopening_keeps_version_and_data(self):
         app=App(Database(self.path))
         app.mutate('suppliers',dict(name='Tek tedarikçi'))
         Database(self.path)
         with closing(sqlite3.connect(self.path)) as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],2)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],VERSION)
         self.assertEqual(len(App(Database(self.path)).snapshot()['suppliers']),1)
         self.assertFalse((Path(self.tmp.name)/'backups').exists())
 

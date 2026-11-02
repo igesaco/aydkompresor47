@@ -31,7 +31,15 @@ def migrate_v2(db):
     db.execute("UPDATE stock SET supplier_id=(SELECT id FROM suppliers WHERE name=TRIM(stock.supplier)) WHERE TRIM(COALESCE(supplier,''))!=''")
 
 
-MIGRATIONS = {2: migrate_v2}
+COMPANY = 'Aydemir Kompresör'
+
+
+def migrate_v3(db):
+    '''Eski varsayılan işletme adını düzelt; kullanıcının girdiği farklı bir ad korunur.'''
+    db.execute("UPDATE settings SET value=? WHERE key='company' AND value='AYD Kompresör'", (COMPANY,))
+
+
+MIGRATIONS = {2: migrate_v2, 3: migrate_v3}
 VERSION = max(MIGRATIONS)
 
 
@@ -51,7 +59,7 @@ class Database:
                 self.backup(target)
         with self.connect() as db:
             db.executescript(SCHEMA)
-            db.execute("INSERT OR IGNORE INTO settings VALUES ('company', 'AYD Kompresör')")
+            db.execute("INSERT OR IGNORE INTO settings VALUES ('company', ?)", (COMPANY,))
         with self.connect() as db:
             version = max(1, db.execute('PRAGMA user_version').fetchone()[0])
             if version < VERSION:
