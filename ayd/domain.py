@@ -1,4 +1,7 @@
+import base64
+import binascii
 import calendar
+import hashlib
 import json
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -77,8 +80,12 @@ DELETABLE = {
     'customers': [('compressors', 'customer_id'), ('ledger', 'customer_id'), ('invoices', 'customer_id'), ('events', 'customer_id')],
     'compressors': [('services', 'compressor_id')],
     'suppliers': [('stock', 'supplier_id'), ('purchases', 'supplier_id'), ('supplier_ledger', 'supplier_id')],
+    'stock': [('stock_movements', 'stock_id'), ('invoice_items', 'stock_id'), ('purchase_items', 'stock_id')],
+    'invoices': [],
     'events': [],
 }
+LOGO_TYPES = {'image/png': b'\x89PNG\r\n\x1a\n', 'image/jpeg': b'\xff\xd8\xff', 'image/webp': b'RIFF'}
+LOGO_LIMIT = 400_000
 COMPANY_FIELDS = ['company', 'company_phone', 'company_email', 'company_address', 'company_tax_no', 'company_iban']
 
 
@@ -116,6 +123,9 @@ class App:
                 'settings': dict(db.execute('SELECT key,value FROM settings').fetchall()),
                 'today': date.today().isoformat(),
             }
+        # Logo her yenilemede taşınmaz; arayüz /api/logo adresinden sürüm anahtarıyla alır.
+        logo = result['settings'].pop('company_logo', '')
+        result['settings']['logo_version'] = hashlib.sha256(logo.encode()).hexdigest()[:12] if logo else ''
         alerts = []
         today = date.today().isoformat()
         limit = (date.today() + timedelta(days=30)).isoformat()
@@ -282,13 +292,47 @@ class App:
                 db.execute('UPDATE purchase_items SET stock_id=? WHERE id=?',(sid,record_id))
                 self.receive(db,sid,item['quantity'],item['unit_price'],f"Alış AL-{item['purchase_id']:04d} · {supplier['name']}")
                 return {'id':sid}
+            elif resource == 'supplier-archive':
+                archived=integer(p.get('archived',1),0,1)
+                supplier=db.execute('''SELECT COALESCE((SELECT SUM(CASE WHEN kind='Alış' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id=t.id),0) balance FROM suppliers t WHERE id=?''',(record_id,)).fetchone()
+                if not supplier:
+                    raise ValueError('Tedarikçi bulunamadı.')
+                if archived and supplier['balance']:
+                    raise ValueError('Bakiyesi kapanmamış tedarikçi arşivlenemez; önce ödemeyi veya düzeltmeyi kaydedin.')
+                db.execute('UPDATE suppliers SET archived=? WHERE id=?',(archived,record_id))
+                return {'ok':True}
+            elif resource == 'logo':
+                data=str(p.get('data') or '')
+                head,_,body=data.partition(',')
+                kind=head.removeprefix('data:').removesuffix(';base64')
+                try:
+                    raw=base64.b64decode(body,validate=True)
+                except (binascii.Error,ValueError):
+                    raise ValueError('Logo dosyası okunamadı.')
+                if kind not in LOGO_TYPES or not head.endswith(';base64') or not raw.startswith(LOGO_TYPES[kind]):
+                    raise ValueError('Logo PNG, JPEG veya WEBP olmalı.')
+                if len(raw)>LOGO_LIMIT:
+                    raise ValueError('Logo en fazla 400 KB olabilir.')
+                db.execute("INSERT OR REPLACE INTO settings VALUES ('company_logo',?)",(f'data:{kind};base64,'+base64.b64encode(raw).decode(),))
+                return {'ok':True}
+            elif resource == 'logo-delete':
+                db.execute("DELETE FROM settings WHERE key='company_logo'")
+                return {'ok':True}
             elif resource == 'delete':
                 table=p.get('table')
                 if table not in DELETABLE or not record_id:
                     raise ValueError('Bu kayıt silinemez.')
                 for child,column in DELETABLE[table]:
                     if db.execute(f'SELECT 1 FROM {child} WHERE {column}=? LIMIT 1',(record_id,)).fetchone():
-                        raise ValueError('Bu karta bağlı kayıtlar var; geçmişi korumak için silinemez.')
+                        hint=' Bakiyesi kapalıysa arşivleyebilirsiniz.' if table=='suppliers' else ''
+                        raise ValueError('Bu karta bağlı kayıtlar var; geçmişi korumak için silinemez.'+hint)
+                if table=='stock' and db.execute('SELECT 1 FROM services WHERE parts LIKE ? LIMIT 1',(f'%"stock_id": {record_id},%',)).fetchone():
+                    raise ValueError('Bu parça bir servis kaydında kullanılıyor; silinemez.')
+                if table=='invoices':
+                    invoice=db.execute('SELECT status FROM invoices WHERE id=?',(record_id,)).fetchone()
+                    if invoice and invoice['status']!='Proforma':
+                        raise ValueError('Satışa dönüşmüş teklif silinemez.')
+                    db.execute('DELETE FROM invoice_items WHERE invoice_id=?',(record_id,))
                 if db.execute(f'DELETE FROM {table} WHERE id=?',(record_id,)).rowcount!=1:
                     raise ValueError('Kayıt bulunamadı.')
                 return {'ok':True}
@@ -358,6 +402,14 @@ class App:
             return rid
         cur=db.execute(f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?' for _ in fields)})",tuple(fields.values()))
         return cur.lastrowid
+
+    def logo(self):
+        with self.database.connect() as db:
+            row=db.execute("SELECT value FROM settings WHERE key='company_logo'").fetchone()
+        if not row:
+            return None
+        head,_,body=row['value'].partition(',')
+        return head.removeprefix('data:').removesuffix(';base64'),base64.b64decode(body)
 
     def stock_for(self,db,supplier,name):
         '''Aynı adlı stok kartını döndürür; yoksa tedarikçiye bağlı yeni kart açar.'''

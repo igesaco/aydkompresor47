@@ -85,6 +85,11 @@ def create_server(database, port=0):
                     return self.respond(200,app.snapshot())
                 if parsed.path.startswith('/api/recommendations/'):
                     return self.respond(200,app.recommendations(int(parsed.path.rsplit('/',1)[1])))
+                if parsed.path=='/api/logo':
+                    logo=app.logo()
+                    if not logo:
+                        return self.respond(404,{'error':'Logo yok.'})
+                    return self.respond(200,logo[1],logo[0])
                 if parsed.path=='/api/backup':
                     with tempfile.TemporaryDirectory() as folder:
                         file=Path(folder)/'backup.sqlite3'

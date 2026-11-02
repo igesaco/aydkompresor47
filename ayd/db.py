@@ -39,7 +39,12 @@ def migrate_v3(db):
     db.execute("UPDATE settings SET value=? WHERE key='company' AND value='AYD Kompresör'", (COMPANY,))
 
 
-MIGRATIONS = {2: migrate_v2, 3: migrate_v3}
+def migrate_v4(db):
+    '''Geçmişi olan tedarikçiler silinmek yerine arşivlenir.'''
+    db.execute('ALTER TABLE suppliers ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1))')
+
+
+MIGRATIONS = {2: migrate_v2, 3: migrate_v3, 4: migrate_v4}
 VERSION = max(MIGRATIONS)
 
 

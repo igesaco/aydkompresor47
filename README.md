@@ -43,7 +43,9 @@ Alternatif olarak depoyu GitHub'a aktardıktan sonra Actions → **Windows EXE**
 - Alış kaydı (AL-0001…): çok kalemli, kalem bazında KDV'li. Ürün kalemleri stoğu artırır ve alış fiyatını son maliyetle günceller. Listede olmayan ürün için aynı adlı kart aranır, yoksa tedarikçiye bağlı yeni stok kartı (TD-0001…) açılır; nakliye/hizmet gibi kalemler stok dışı seçilebilir, stok dışı kaydedilmiş kalemler alış belgesinden sonradan stoğa eklenebilir; KDV dahil toplam tedarikçi borcu olarak işlenir. Vade boşsa tedarikçinin ödeme vadesi kullanılır. Alış belgeleri değiştirilemez.
 - Tedarikçi cari hesabı: ödeme ve açılış/borç kaydı. Ödemeler en eski vadeli borçlara dağıtılır; geciken ve 7 gün içinde vadesi gelen ödemeler uyarı merkezinde görünür.
 - Randevu takvimi; müşteri bağlantısı, saat ve tamamlanma durumu.
-- Bağlı kaydı olmayan müşteri, kompresör, tedarikçi ve randevu kartları düzenleme penceresinden silinebilir; hareketi olan kartlar geçmişi korumak için silinemez.
+- Bağlı kaydı olmayan müşteri, kompresör, tedarikçi, stok kartı, randevu ve satışa dönüşmemiş proforma silinebilir; hareketi olan kartlar geçmişi korumak için silinemez. Geçmişi olan tedarikçi, bakiyesi kapalıysa arşivlenir; arşivdeki tedarikçi yeni alış ve stok seçimlerinde görünmez, kayıtları korunur.
+- Firma logosu (PNG, JPEG, WEBP) Ayarlar'dan yüklenir veya kaldırılır; en fazla 600×240 piksele küçültülür, proforma belgesinde ve sol menüde görünür.
+- Kritik stoktaki ürünün satırındaki “Sipariş / Alış” butonu, tedarikçi, ürün, önerilen adet ve son maliyetle dolu alış formunu açar. Satış fiyatı girilmemiş stok kartları işaretlenir. Servis formu seçilen parçaların satış değerini gösterir ve servis bedeline ekleyebilir.
 - İşletme telefonu, e-posta, adres, vergi no ve IBAN proforma belgesinde görünür.
 - Stok, vadesi geçmiş cari, garanti ve bakım uyarıları. Garanti/bakım için geçmiş tarihler ve gelecek **30 gün** dikkate alınır. Bakımda makinenin **en son tamamlanmış servisi** esas alınır. Uygulama açıkken 60 saniyede yenilenir; kapalıyken arka plan bildirimi, SMS veya e-posta göndermez.
 - Geçmişe dayalı atölye asistanı: aynı kapasitedeki **diğer** kompresörlerin tamamlanan servislerini getirir, aynı markayı önce sıralar. Kaynak servis/tarih/işlemler gösterilir. Bu bir üretici teknik teşhisi veya eğitilmiş yapay zekâ modeli değildir. Harici AI API'si kullanılmaz.
@@ -71,13 +73,13 @@ python3 -m unittest discover -s tests -v
 node --check web/app.js
 ```
 
-31 otomatik test gerçek SQLite üzerinde stok/cari atomikliği, proforma dönüşümü, mükerrer işlem koruması, yetersiz stok geri alma, tarih/KDV hesapları, öneriler, bakiye/vade uyarıları, yedekten açılış, tedarikçi alış/ödeme/uyarıları, sürüm 1 veritabanından geçiş, silme korumaları ve yerel HTTP oturum güvenliğini kapsar. Node yalnızca isteğe bağlı JavaScript sözdizimi kontrolünde kullanılır, uygulamanın çalışması için gerekli değildir.
+35 otomatik test gerçek SQLite üzerinde stok/cari atomikliği, proforma dönüşümü, mükerrer işlem koruması, yetersiz stok geri alma, tarih/KDV hesapları, öneriler, bakiye/vade uyarıları, yedekten açılış, tedarikçi alış/ödeme/uyarıları, sürüm 1 veritabanından geçiş, silme korumaları ve yerel HTTP oturum güvenliğini kapsar. Node yalnızca isteğe bağlı JavaScript sözdizimi kontrolünde kullanılır, uygulamanın çalışması için gerekli değildir.
 
 ## Mimari ve mobil altyapı
 
 `ayd/db.py` → SQLite şema ve tutarlı yedekleme. `ayd/domain.py` → arayüzden bağımsız iş kuralları ve işlemler. `ayd/server.py` → yerel JSON API ve statik arayüz. `web/` → bağımsız Türkçe HTML/CSS/JS arayüz. `desktop.py` → yerel sunucu, otomatik yedek ve masaüstü başlatıcısı.
 
-Tutarlar veritabanında **tam sayı kuruş** olarak saklanır; giriş Decimal ile çevrilir. KDV kalem bazında kuruşa yuvarlanır. Para birimi TL'dir. Veritabanı sürümü `PRAGMA user_version` ile izlenir (güncel: 3). Şema değişiklikleri `ayd/db.py` içindeki `MIGRATIONS` adımlarıyla uygulanır; eski bir veritabanı açıldığında önce `backups/migration-v1-ayd.sqlite3` kopyası alınır, ardından geçiş tek işlemde yapılır. Sürüm 1'deki serbest metin tedarikçi adları otomatik olarak tedarikçi kartlarına dönüştürülür.
+Tutarlar veritabanında **tam sayı kuruş** olarak saklanır; giriş Decimal ile çevrilir. KDV kalem bazında kuruşa yuvarlanır. Para birimi TL'dir. Veritabanı sürümü `PRAGMA user_version` ile izlenir (güncel: 4). Şema değişiklikleri `ayd/db.py` içindeki `MIGRATIONS` adımlarıyla uygulanır; eski bir veritabanı açıldığında önce `backups/migration-v1-ayd.sqlite3` kopyası alınır, ardından geçiş tek işlemde yapılır. Sürüm 1'deki serbest metin tedarikçi adları otomatik olarak tedarikçi kartlarına dönüştürülür.
 
 Mobil/bulut aşamasında domain katmanı korunabilir. Ancak bu yerel API doğrudan internete açılmaya hazır değildir: kimlik doğrulama, kullanıcı/işletme yetkileri, HTTPS, merkezi veritabanı, kimlik/çakışma yönetimi ve çevrimdışı senkronizasyon ayrıca geliştirilmelidir.
 

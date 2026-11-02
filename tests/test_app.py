@@ -1,3 +1,4 @@
+import base64
 import json
 import sqlite3
 import tempfile
@@ -165,6 +166,42 @@ class DomainTests(unittest.TestCase):
         s=self.app.snapshot()
         self.assertEqual([(x['name'],x['quantity'],x['buy_price']) for x in s['stock'] if x['name']=='Kayış A-42'],[('Kayış A-42',4,3000)])
         self.assertEqual(s['suppliers'][0]['balance'],14400)
+    def test_supplier_archive_requires_closed_balance(self):
+        sid=self.supplier()
+        self.app.mutate('supplier-ledger',dict(supplier_id=sid,date='2026-01-01',kind='Alış',amount=50,description='Açılış'))
+        with self.assertRaises(ValueError): self.app.mutate('supplier-archive',{'archived':1},sid)
+        self.app.mutate('supplier-ledger',dict(supplier_id=sid,date='2026-01-02',kind='Ödeme',amount=50,description='Ödeme'))
+        self.app.mutate('supplier-archive',{'archived':1},sid)
+        self.assertEqual(self.app.snapshot()['suppliers'][0]['archived'],1)
+        self.app.mutate('supplier-archive',{'archived':0},sid)
+        self.assertEqual(self.app.snapshot()['suppliers'][0]['archived'],0)
+    def test_logo_upload_validation_and_removal(self):
+        png=b'\x89PNG\r\n\x1a\n'+b'0'*20
+        self.app.mutate('logo',{'data':'data:image/png;base64,'+base64.b64encode(png).decode()})
+        self.assertEqual(self.app.logo(),('image/png',png))
+        self.assertTrue(self.app.snapshot()['settings']['logo_version'])
+        self.assertNotIn('company_logo',self.app.snapshot()['settings'])
+        for bad in ['data:image/svg+xml;base64,'+base64.b64encode(b'<svg/>').decode(),'data:image/png;base64,'+base64.b64encode(b'not png').decode(),'data:image/png;base64,'+base64.b64encode(b'\x89PNG\r\n\x1a\n'+b'0'*400_001).decode(),'bozuk']:
+            with self.assertRaises(ValueError): self.app.mutate('logo',{'data':bad})
+        self.app.mutate('logo-delete',{})
+        self.assertIsNone(self.app.logo())
+        self.assertEqual(self.app.snapshot()['settings']['logo_version'],'')
+    def test_unconverted_proforma_and_unused_stock_can_be_deleted(self):
+        iid=self.invoice()
+        self.app.mutate('delete',{'table':'invoices'},iid)
+        s=self.app.snapshot()
+        self.assertEqual((s['invoices'],s['invoice_items']),([],[]))
+        iid=self.invoice()
+        self.app.mutate('invoice-convert',{},iid)
+        with self.assertRaises(ValueError): self.app.mutate('delete',{'table':'invoices'},iid)
+        unused=self.app.mutate('stock',dict(sku='B-1',name='Boş kart'))['id']
+        self.app.mutate('delete',{'table':'stock'},unused)
+        with self.assertRaises(ValueError): self.app.mutate('delete',{'table':'stock'},self.stock)
+        self.assertEqual(len(self.app.snapshot()['stock']),1)
+    def test_stock_used_in_pending_service_cannot_be_deleted(self):
+        part=self.app.mutate('stock',dict(sku='P-1',name='Planlanan parça'))['id']
+        self.app.mutate('services',dict(compressor_id=self.compressor,date='2026-01-01',title='Bakım',operations='Kontrol',status='Bekliyor',parts=[dict(stock_id=part,quantity=1)]))
+        with self.assertRaises(ValueError): self.app.mutate('delete',{'table':'stock'},part)
     def test_failed_purchase_rolls_back(self):
         sid=self.supplier()
         with self.assertRaises(sqlite3.IntegrityError):
