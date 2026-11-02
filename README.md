@@ -43,7 +43,7 @@ Alternatif olarak depoyu GitHub'a aktardıktan sonra Actions → **Windows EXE**
 - Alış kaydı (AL-0001…): çok kalemli, kalem bazında KDV'li. Ürün kalemleri stoğu artırır ve alış fiyatını son maliyetle günceller. Listede olmayan ürün için aynı adlı kart aranır, yoksa tedarikçiye bağlı yeni stok kartı (TD-0001…) açılır; nakliye/hizmet gibi kalemler stok dışı seçilebilir, stok dışı kaydedilmiş kalemler alış belgesinden sonradan stoğa eklenebilir; KDV dahil toplam tedarikçi borcu olarak işlenir. Vade boşsa tedarikçinin ödeme vadesi kullanılır. Alış belgeleri değiştirilemez.
 - Tedarikçi cari hesabı: ödeme ve açılış/borç kaydı. Ödemeler en eski vadeli borçlara dağıtılır; geciken ve 7 gün içinde vadesi gelen ödemeler uyarı merkezinde görünür.
 - Randevu takvimi; müşteri bağlantısı, saat ve tamamlanma durumu.
-- Bağlı kaydı olmayan müşteri, kompresör, tedarikçi, stok kartı, randevu ve satışa dönüşmemiş proforma silinebilir; hareketi olan kartlar geçmişi korumak için silinemez. Geçmişi olan tedarikçi, bakiyesi kapalıysa arşivlenir; arşivdeki tedarikçi yeni alış ve stok seçimlerinde görünmez, kayıtları korunur.
+- Bağlı kaydı olmayan müşteri, kompresör, tedarikçi, randevu ve satışa dönüşmemiş proforma silinebilir. Alış belgesi silinince stoğa eklenen adetler geri düşülür ve tedarikçi borcu kalkar (ürün stoktan kullanıldıysa engellenir). Tedarikçi, onay penceresinde ne silineceği gösterilerek tüm alış ve hesap hareketleriyle silinebilir; stok kartları korunur. Stok kartı hareketleriyle birlikte silinebilir; kayıtlı bir alışta veya serviste geçiyorsa engellenir, proforma kalemlerinde metin korunur. Geçmişi olan tedarikçi, bakiyesi kapalıysa arşivlenir; arşivdeki tedarikçi yeni alış ve stok seçimlerinde görünmez, kayıtları korunur.
 - Firma logosu (PNG, JPEG, WEBP) Ayarlar'dan yüklenir veya kaldırılır; en fazla 600×240 piksele küçültülür, proforma belgesinde ve sol menüde görünür.
 - Kritik stoktaki ürünün satırındaki “Sipariş / Alış” butonu, tedarikçi, ürün, önerilen adet ve son maliyetle dolu alış formunu açar. Satış fiyatı girilmemiş stok kartları işaretlenir. Servis formu seçilen parçaların satış değerini gösterir ve servis bedeline ekleyebilir.
 - İşletme telefonu, e-posta, adres, vergi no ve IBAN proforma belgesinde görünür.
@@ -73,7 +73,7 @@ python3 -m unittest discover -s tests -v
 node --check web/app.js
 ```
 
-35 otomatik test gerçek SQLite üzerinde stok/cari atomikliği, proforma dönüşümü, mükerrer işlem koruması, yetersiz stok geri alma, tarih/KDV hesapları, öneriler, bakiye/vade uyarıları, yedekten açılış, tedarikçi alış/ödeme/uyarıları, sürüm 1 veritabanından geçiş, silme korumaları ve yerel HTTP oturum güvenliğini kapsar. Node yalnızca isteğe bağlı JavaScript sözdizimi kontrolünde kullanılır, uygulamanın çalışması için gerekli değildir.
+38 otomatik test gerçek SQLite üzerinde stok/cari atomikliği, proforma dönüşümü, mükerrer işlem koruması, yetersiz stok geri alma, tarih/KDV hesapları, öneriler, bakiye/vade uyarıları, yedekten açılış, tedarikçi alış/ödeme/uyarıları, sürüm 1 veritabanından geçiş, silme korumaları ve yerel HTTP oturum güvenliğini kapsar. Node yalnızca isteğe bağlı JavaScript sözdizimi kontrolünde kullanılır, uygulamanın çalışması için gerekli değildir.
 
 ## Mimari ve mobil altyapı
 

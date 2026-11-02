@@ -196,12 +196,41 @@ class DomainTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.app.mutate('delete',{'table':'invoices'},iid)
         unused=self.app.mutate('stock',dict(sku='B-1',name='Boş kart'))['id']
         self.app.mutate('delete',{'table':'stock'},unused)
-        with self.assertRaises(ValueError): self.app.mutate('delete',{'table':'stock'},self.stock)
-        self.assertEqual(len(self.app.snapshot()['stock']),1)
+        # Hareketli ve satışta geçen kart silinir; belgedeki kalem metni korunur.
+        self.app.mutate('delete',{'table':'stock'},self.stock)
+        s=self.app.snapshot()
+        self.assertEqual((s['stock'],s['movements']),([],[]))
+        self.assertEqual([(x['stock_id'],x['description']) for x in s['invoice_items']],[(None,'Filtre')])
     def test_stock_used_in_pending_service_cannot_be_deleted(self):
         part=self.app.mutate('stock',dict(sku='P-1',name='Planlanan parça'))['id']
         self.app.mutate('services',dict(compressor_id=self.compressor,date='2026-01-01',title='Bakım',operations='Kontrol',status='Bekliyor',parts=[dict(stock_id=part,quantity=1)]))
         with self.assertRaises(ValueError): self.app.mutate('delete',{'table':'stock'},part)
+    def test_purchase_delete_reverses_stock_and_debt(self):
+        sid=self.supplier()
+        pid=self.app.mutate('purchases',dict(supplier_id=sid,date='2026-01-10',items=[dict(stock_id=self.stock,description='Filtre',quantity=3,unit_price='10')]))['id']
+        with self.assertRaises(ValueError): self.app.mutate('delete',{'table':'stock'},self.stock)
+        self.app.mutate('purchase-delete',{},pid)
+        s=self.app.snapshot()
+        self.assertEqual((s['stock'][0]['quantity'],s['purchases'],s['purchase_items'],s['supplier_ledger']),(5,[],[],[]))
+    def test_purchase_delete_blocked_when_stock_used(self):
+        sid=self.supplier()
+        pid=self.app.mutate('purchases',dict(supplier_id=sid,date='2026-01-10',items=[dict(stock_id='new',description='Kayış',quantity=2,unit_price='10')]))['id']
+        kayis=[x for x in self.app.snapshot()['stock'] if x['name']=='Kayış'][0]['id']
+        self.app.mutate('stock-movement',dict(stock_id=kayis,delta=-2,description='Kullanıldı'))
+        with self.assertRaises(ValueError): self.app.mutate('purchase-delete',{},pid)
+        self.assertEqual(len(self.app.snapshot()['purchases']),1)
+    def test_supplier_cascade_delete(self):
+        sid=self.supplier()
+        self.app.mutate('purchases',dict(supplier_id=sid,date='2026-01-10',items=[dict(stock_id='new',description='aaaaa',quantity=20,unit_price='200',tax_rate=20)]))
+        self.app.mutate('supplier-ledger',dict(supplier_id=sid,date='2026-01-11',kind='Ödeme',amount=100,description='Ödeme'))
+        with self.assertRaises(ValueError): self.app.mutate('delete',{'table':'suppliers'},sid)
+        self.app.mutate('delete',{'table':'suppliers','cascade':True},sid)
+        s=self.app.snapshot()
+        self.assertEqual((s['suppliers'],s['purchases'],s['supplier_ledger']),([],[],[]))
+        card=[x for x in s['stock'] if x['name']=='aaaaa'][0]
+        self.assertEqual((card['quantity'],card['supplier_id']),(0,None))
+        self.app.mutate('delete',{'table':'stock'},card['id'])
+        self.assertEqual([x['name'] for x in self.app.snapshot()['stock']],['Filtre'])
     def test_failed_purchase_rolls_back(self):
         sid=self.supplier()
         with self.assertRaises(sqlite3.IntegrityError):
@@ -233,7 +262,6 @@ class DomainTests(unittest.TestCase):
         self.app.mutate('stock',dict(sku='F-1',name='Filtre',supplier_id=sid),self.stock)
         with self.assertRaises(ValueError): self.app.mutate('delete',{'table':'suppliers'},sid)
         with self.assertRaises(ValueError): self.app.mutate('delete',{'table':'customers'},self.customer)
-        with self.assertRaises(ValueError): self.app.mutate('delete',{'table':'stock'},self.stock)
         empty=self.app.mutate('customers',{'name':'Boş müşteri'})['id']
         self.app.mutate('delete',{'table':'customers'},empty)
         self.assertEqual(len(self.app.snapshot()['customers']),1)

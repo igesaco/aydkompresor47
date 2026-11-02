@@ -80,7 +80,8 @@ DELETABLE = {
     'customers': [('compressors', 'customer_id'), ('ledger', 'customer_id'), ('invoices', 'customer_id'), ('events', 'customer_id')],
     'compressors': [('services', 'compressor_id')],
     'suppliers': [('stock', 'supplier_id'), ('purchases', 'supplier_id'), ('supplier_ledger', 'supplier_id')],
-    'stock': [('stock_movements', 'stock_id'), ('invoice_items', 'stock_id'), ('purchase_items', 'stock_id')],
+    # Stok kartı hareketleriyle silinir; alış belgesi ve servis bağları ayrıca kontrol edilir.
+    'stock': [],
     'invoices': [],
     'events': [],
 }
@@ -318,10 +319,23 @@ class App:
             elif resource == 'logo-delete':
                 db.execute("DELETE FROM settings WHERE key='company_logo'")
                 return {'ok':True}
+            elif resource == 'purchase-delete':
+                self.delete_purchase(db,record_id)
+                return {'ok':True}
             elif resource == 'delete':
                 table=p.get('table')
                 if table not in DELETABLE or not record_id:
                     raise ValueError('Bu kayıt silinemez.')
+                if table=='suppliers' and p.get('cascade'):
+                    # Tedarikçi tüm kayıtlarıyla silinir: alışlar geri alınır, stok kartları korunup bağı kaldırılır.
+                    for (pid,) in db.execute('SELECT id FROM purchases WHERE supplier_id=?',(record_id,)).fetchall():
+                        self.delete_purchase(db,pid)
+                    db.execute('DELETE FROM supplier_ledger WHERE supplier_id=?',(record_id,))
+                    db.execute('UPDATE stock SET supplier_id=NULL WHERE supplier_id=?',(record_id,))
+                if table=='stock':
+                    used=db.execute('SELECT purchase_id FROM purchase_items WHERE stock_id=? LIMIT 1',(record_id,)).fetchone()
+                    if used:
+                        raise ValueError(f"Bu ürün AL-{used['purchase_id']:04d} alışında kayıtlı; önce o alışı silin.")
                 for child,column in DELETABLE[table]:
                     if db.execute(f'SELECT 1 FROM {child} WHERE {column}=? LIMIT 1',(record_id,)).fetchone():
                         hint=' Bakiyesi kapalıysa arşivleyebilirsiniz.' if table=='suppliers' else ''
@@ -333,6 +347,9 @@ class App:
                     if invoice and invoice['status']!='Proforma':
                         raise ValueError('Satışa dönüşmüş teklif silinemez.')
                     db.execute('DELETE FROM invoice_items WHERE invoice_id=?',(record_id,))
+                if table=='stock':
+                    db.execute('UPDATE invoice_items SET stock_id=NULL WHERE stock_id=?',(record_id,))
+                    db.execute('DELETE FROM stock_movements WHERE stock_id=?',(record_id,))
                 if db.execute(f'DELETE FROM {table} WHERE id=?',(record_id,)).rowcount!=1:
                     raise ValueError('Kayıt bulunamadı.')
                 return {'ok':True}
@@ -402,6 +419,21 @@ class App:
             return rid
         cur=db.execute(f"INSERT INTO {table} ({','.join(fields)}) VALUES ({','.join('?' for _ in fields)})",tuple(fields.values()))
         return cur.lastrowid
+
+    def delete_purchase(self,db,pid):
+        '''Alışı geri alır: stoğa eklenen adetleri düşer, tedarikçi borcunu ve belgeyi siler.'''
+        purchase=db.execute('SELECT * FROM purchases WHERE id=?',(pid,)).fetchone()
+        if not purchase:
+            raise ValueError('Alış bulunamadı.')
+        label=f'AL-{pid:04d}'
+        for item in db.execute('SELECT * FROM purchase_items WHERE purchase_id=? AND stock_id IS NOT NULL',(pid,)).fetchall():
+            try:
+                self.move_stock(db,item['stock_id'],-item['quantity'],f'Alış iptali {label}')
+            except ValueError:
+                raise ValueError(f"{label} alışındaki “{item['description']}” stoktan kullanılmış; alış silinemez. Önce stok hareketiyle düzeltin.")
+        db.execute('DELETE FROM supplier_ledger WHERE source=?',(f'purchase:{pid}',))
+        db.execute('DELETE FROM purchase_items WHERE purchase_id=?',(pid,))
+        db.execute('DELETE FROM purchases WHERE id=?',(pid,))
 
     def logo(self):
         with self.database.connect() as db:
