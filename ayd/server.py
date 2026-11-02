@@ -23,6 +23,16 @@ def data_directory():
     return Path(os.environ.get('XDG_DATA_HOME',Path.home()/'.local'/'share'))/'ayd-kompresor'
 
 
+def integrity_message(error):
+    unique={'stock.sku':'Bu stok kodu zaten kayıtlı.','compressors.serial':'Bu seri numarası zaten kayıtlı.','suppliers.name':'Bu isimde bir tedarikçi zaten kayıtlı.'}
+    for column,message in unique.items():
+        if 'UNIQUE' in error and column in error:
+            return message
+    if 'UNIQUE' in error:
+        return 'Bu kayıt zaten mevcut.'
+    return 'Bağlı kayıt bulunamadı veya veri kuralına uymuyor.'
+
+
 def create_server(database, port=0):
     app=App(database)
     token=secrets.token_urlsafe(32)
@@ -86,6 +96,8 @@ def create_server(database, port=0):
                 return self.respond(404,{'error':'Sayfa bulunamadı.'})
             except (ValueError,KeyError):
                 return self.respond(400,{'error':'Geçersiz istek.'})
+            except sqlite3.Error:
+                return self.respond(503,{'error':'Veritabanı okunamadı. Tekrar deneyin.'})
 
         def do_POST(self):
             origin=f'http://127.0.0.1:{self.server.server_port}'
@@ -106,7 +118,7 @@ def create_server(database, port=0):
                 result=app.mutate(parts[1],payload,integer(parts[2],1) if len(parts)==3 else None)
                 self.respond(200,result)
             except sqlite3.IntegrityError as exc:
-                message='Bu stok kodu veya seri numarası zaten kayıtlı.' if 'UNIQUE' in str(exc) else 'Bağlı kayıt bulunamadı veya veri kuralına uymuyor.'
+                message=integrity_message(str(exc))
                 self.respond(400,{'error':message})
             except (ValueError,TypeError,KeyError,OverflowError) as exc:
                 self.respond(400,{'error':str(exc) or 'Geçersiz veri.'})

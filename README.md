@@ -39,7 +39,12 @@ Alternatif olarak depoyu GitHub'a aktardıktan sonra Actions → **Windows EXE**
 - Stok kartları, kategori, tedarikçi, alış/satış fiyatı, açılış adedi ve alt sınır; açıklamalı stok giriş/çıkışı ve hareket geçmişi. Stok adedi eksiye düşmez. Adetler tam sayıdır.
 - Cari borç/tahsilat, vade takibi, müşteri avansları. Tahsilatlar vade sırasıyla borçlara dağıtılarak geciken bakiye hesaplanır. Kesinleşen hareketler değiştirilemez; hata düzeltmesi için açıklamalı karşı hareket girilir.
 - Çok kalemli ve kalem bazında KDV oranlı proforma; yazdırma/PDF çıktısı. Proforma stok/bakiye etkilemez. Satışa dönüşüm bağlı stokları düşürür ve KDV dahil cari borç oluşturur; ikinci kez dönüşüm engellenir.
+- Tedarikçi kartları: yetkili, telefon, e-posta, vergi no, IBAN ve gün olarak ödeme vadesi. Stok kartları tedarikçiye bağlanır; kritik stok uyarısında tedarikçi adı ve telefonu görünür.
+- Alış kaydı (AL-0001…): çok kalemli, kalem bazında KDV'li. Stoğa bağlı kalemler stoğu artırır ve ürünün alış fiyatını son maliyetle günceller; KDV dahil toplam tedarikçi borcu olarak işlenir. Vade boşsa tedarikçinin ödeme vadesi kullanılır. Alış belgeleri değiştirilemez.
+- Tedarikçi cari hesabı: ödeme ve açılış/borç kaydı. Ödemeler en eski vadeli borçlara dağıtılır; geciken ve 7 gün içinde vadesi gelen ödemeler uyarı merkezinde görünür.
 - Randevu takvimi; müşteri bağlantısı, saat ve tamamlanma durumu.
+- Bağlı kaydı olmayan müşteri, kompresör, tedarikçi ve randevu kartları düzenleme penceresinden silinebilir; hareketi olan kartlar geçmişi korumak için silinemez.
+- İşletme telefonu, e-posta, adres, vergi no ve IBAN proforma belgesinde görünür.
 - Stok, vadesi geçmiş cari, garanti ve bakım uyarıları. Garanti/bakım için geçmiş tarihler ve gelecek **30 gün** dikkate alınır. Bakımda makinenin **en son tamamlanmış servisi** esas alınır. Uygulama açıkken 60 saniyede yenilenir; kapalıyken arka plan bildirimi, SMS veya e-posta göndermez.
 - Geçmişe dayalı atölye asistanı: aynı kapasitedeki **diğer** kompresörlerin tamamlanan servislerini getirir, aynı markayı önce sıralar. Kaynak servis/tarih/işlemler gösterilir. Bu bir üretici teknik teşhisi veya eğitilmiş yapay zekâ modeli değildir. Harici AI API'si kullanılmaz.
 - Açılışta günlük otomatik yedek, son 14 açılış gününün yedeği ve istenildiğinde tutarlı SQLite yedeği indirme.
@@ -66,19 +71,19 @@ python3 -m unittest discover -s tests -v
 node --check web/app.js
 ```
 
-17 otomatik test gerçek SQLite üzerinde stok/cari atomikliği, proforma dönüşümü, mükerrer işlem koruması, yetersiz stok geri alma, tarih/KDV hesapları, öneriler, bakiye/vade uyarıları, yedekten açılış ve yerel HTTP oturum güvenliğini kapsar. Node yalnızca isteğe bağlı JavaScript sözdizimi kontrolünde kullanılır, uygulamanın çalışması için gerekli değildir.
+27 otomatik test gerçek SQLite üzerinde stok/cari atomikliği, proforma dönüşümü, mükerrer işlem koruması, yetersiz stok geri alma, tarih/KDV hesapları, öneriler, bakiye/vade uyarıları, yedekten açılış, tedarikçi alış/ödeme/uyarıları, sürüm 1 veritabanından geçiş, silme korumaları ve yerel HTTP oturum güvenliğini kapsar. Node yalnızca isteğe bağlı JavaScript sözdizimi kontrolünde kullanılır, uygulamanın çalışması için gerekli değildir.
 
 ## Mimari ve mobil altyapı
 
 `ayd/db.py` → SQLite şema ve tutarlı yedekleme. `ayd/domain.py` → arayüzden bağımsız iş kuralları ve işlemler. `ayd/server.py` → yerel JSON API ve statik arayüz. `web/` → bağımsız Türkçe HTML/CSS/JS arayüz. `desktop.py` → yerel sunucu, otomatik yedek ve masaüstü başlatıcısı.
 
-Tutarlar veritabanında **tam sayı kuruş** olarak saklanır; giriş Decimal ile çevrilir. KDV kalem bazında kuruşa yuvarlanır. Para birimi TL'dir. Veritabanı sürümü `PRAGMA user_version=1` ile işaretlenmiştir; gelecek şema değişiklikleri için veri taşıma adımları eklenmelidir.
+Tutarlar veritabanında **tam sayı kuruş** olarak saklanır; giriş Decimal ile çevrilir. KDV kalem bazında kuruşa yuvarlanır. Para birimi TL'dir. Veritabanı sürümü `PRAGMA user_version` ile izlenir (güncel: 2). Şema değişiklikleri `ayd/db.py` içindeki `MIGRATIONS` adımlarıyla uygulanır; eski bir veritabanı açıldığında önce `backups/migration-v1-ayd.sqlite3` kopyası alınır, ardından geçiş tek işlemde yapılır. Sürüm 1'deki serbest metin tedarikçi adları otomatik olarak tedarikçi kartlarına dönüştürülür.
 
 Mobil/bulut aşamasında domain katmanı korunabilir. Ancak bu yerel API doğrudan internete açılmaya hazır değildir: kimlik doğrulama, kullanıcı/işletme yetkileri, HTTPS, merkezi veritabanı, kimlik/çakışma yönetimi ve çevrimdışı senkronizasyon ayrıca geliştirilmelidir.
 
 ## İlk sürümün sınırları
 
-Bu sürüm müşteri alacağı ve tahsilat odaklıdır; tam muhasebe defteri, gider/tedarikçi borcu, kasa/banka mutabakatı, resmi e-Fatura entegrasyonu, iade/iskonto/iptal belgeleri ve otomatik sipariş gönderimi içermez. Satış stok hareketini ve cari borcu kaydeder; mali fatura oluşturmaz. Servis bedeli nihai toplam olarak girilir; servis için ayrıca KDV ayrıştırılmaz. Mali belge üretimi için ayrı entegrasyon gerekir.
+Bu sürüm müşteri alacağı ve tahsilat odaklıdır; tam muhasebe defteri, genel gider takibi, kasa/banka mutabakatı, resmi e-Fatura entegrasyonu, iade/iskonto/iptal belgeleri ve otomatik sipariş gönderimi içermez. Satış stok hareketini ve cari borcu kaydeder; mali fatura oluşturmaz. Servis bedeli nihai toplam olarak girilir; servis için ayrıca KDV ayrıştırılmaz. Mali belge üretimi için ayrı entegrasyon gerekir.
 
 Tarayıcı uçtan uca testi: Playwright ve Chromium bulunan ortamda `python3 tests/ui_smoke.py`. Test kendi geçici demo veritabanını açar. Doğrulama ayrıntıları: [docs/DOGRULAMA.md](docs/DOGRULAMA.md).
 

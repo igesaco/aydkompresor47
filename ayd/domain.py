@@ -38,6 +38,50 @@ def text(v, required=False):
     return s
 
 
+def email(v):
+    s = text(v)
+    if s and (len(s) > 254 or '@' not in s.strip('@') or ' ' in s):
+        raise ValueError('Geçerli bir e-posta adresi girin.')
+    return s
+
+
+def tl(kurus):
+    '''Kuruşu Türkçe para biçimine çevirir: 1234567 -> 12.345,67 TL'''
+    return f'{kurus/100:,.2f}'.replace(',', ' ').replace('.', ',').replace(' ', '.') + ' TL'
+
+
+def due(value):
+    # Devreden bakiyeler geçmiş vadeyle girilebildiği için işlem tarihine göre kısıtlanmaz.
+    return day(value) if value else None
+
+
+def open_dues(entries, debit, today, soon):
+    '''Ödemeleri en eski vadeli borçlara dağıtır; (geciken, yaklaşan, ilk yaklaşan vade) döner.'''
+    credits = sum(e['amount'] for e in entries if e['kind'] != debit)
+    overdue = upcoming = 0
+    first = None
+    for e in sorted((e for e in entries if e['kind'] == debit), key=lambda e: (e['due_date'] or e['date'], e['id'])):
+        paid = min(credits, e['amount'])
+        credits -= paid
+        left = e['amount'] - paid
+        if left and e['due_date'] and e['due_date'] < today:
+            overdue += left
+        elif left and e['due_date'] and e['due_date'] <= soon:
+            upcoming += left
+            first = first or e['due_date']
+    return overdue, upcoming, first
+
+
+# Silme yalnızca bağlı kaydı olmayan kartlarda yapılır; geçmiş hareketler korunur.
+DELETABLE = {
+    'customers': [('compressors', 'customer_id'), ('ledger', 'customer_id'), ('invoices', 'customer_id'), ('events', 'customer_id')],
+    'compressors': [('services', 'compressor_id')],
+    'suppliers': [('stock', 'supplier_id'), ('purchases', 'supplier_id'), ('supplier_ledger', 'supplier_id')],
+    'events': [],
+}
+COMPANY_FIELDS = ['company', 'company_phone', 'company_email', 'company_address', 'company_tax_no', 'company_iban']
+
+
 def add_months(value, months):
     d = date.fromisoformat(value)
     m = d.month - 1 + months
@@ -58,7 +102,11 @@ class App:
             result = {
                 'customers': rows(db, '''SELECT c.*, COALESCE((SELECT SUM(CASE WHEN kind='Borç' THEN amount ELSE -amount END) FROM ledger WHERE customer_id=c.id),0) balance FROM customers c ORDER BY c.name'''),
                 'compressors': rows(db, 'SELECT k.*,c.name customer_name FROM compressors k JOIN customers c ON c.id=k.customer_id ORDER BY k.id DESC'),
-                'stock': rows(db, 'SELECT * FROM stock ORDER BY name'),
+                'stock': rows(db, '''SELECT s.*,COALESCE(t.name,'') supplier_name,COALESCE(t.phone,'') supplier_phone FROM stock s LEFT JOIN suppliers t ON t.id=s.supplier_id ORDER BY s.name'''),
+                'suppliers': rows(db, '''SELECT t.*, COALESCE((SELECT SUM(CASE WHEN kind='Alış' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id=t.id),0) balance FROM suppliers t ORDER BY t.name'''),
+                'purchases': rows(db, 'SELECT p.*,t.name supplier_name FROM purchases p JOIN suppliers t ON t.id=p.supplier_id ORDER BY p.date DESC,p.id DESC'),
+                'purchase_items': rows(db, 'SELECT * FROM purchase_items'),
+                'supplier_ledger': rows(db, 'SELECT l.*,t.name supplier_name FROM supplier_ledger l JOIN suppliers t ON t.id=l.supplier_id ORDER BY l.date DESC,l.id DESC'),
                 'services': rows(db, '''SELECT s.*,k.brand,k.model,k.capacity,k.serial,k.customer_id,c.name customer_name FROM services s JOIN compressors k ON k.id=s.compressor_id JOIN customers c ON c.id=k.customer_id ORDER BY s.date DESC,s.id DESC'''),
                 'ledger': rows(db, 'SELECT l.*,c.name customer_name FROM ledger l JOIN customers c ON c.id=l.customer_id ORDER BY l.date DESC,l.id DESC'),
                 'events': rows(db, 'SELECT e.*,c.name customer_name FROM events e LEFT JOIN customers c ON c.id=e.customer_id ORDER BY e.date,e.time'),
@@ -73,7 +121,8 @@ class App:
         limit = (date.today() + timedelta(days=30)).isoformat()
         for s in result['stock']:
             if s['quantity'] <= s['minimum']:
-                alerts.append({'type':'stock','title':s['name'], 'detail':f"{s['quantity']} adet kaldı · Alt sınır {s['minimum']} · {s['supplier'] or 'Tedarikçi belirtilmedi'}",'date':today,'target':'stock'})
+                supplier = ' '.join(x for x in [s['supplier_name'],s['supplier_phone']] if x) or 'Tedarikçi belirtilmedi'
+                alerts.append({'type':'stock','title':s['name'], 'detail':f"{s['quantity']} adet kaldı · Alt sınır {s['minimum']} · {supplier}",'date':today,'target':'stock'})
         for c in result['compressors']:
             if c['warranty_end'] and c['warranty_end'] <= limit:
                 alerts.append({'type':'warranty','title':c['customer_name'], 'detail':f"{c['brand']} {c['capacity']} lt · {c['serial']} · Garanti uzatması için görüşün",'date':c['warranty_end'],'target':'compressors'})
@@ -84,16 +133,17 @@ class App:
                     alerts.append({'type':'maintenance','title':c['customer_name'],'detail':f"{c['brand']} {c['capacity']} lt · {c['serial']} · {latest['maintenance_months']} aylık bakım için görüşün",'date':latest['next_maintenance'],'target':'services'})
         # Tahsilatları en eski borçlara dağıtarak kalan vadesi geçmiş tutarı hesapla.
         for c in result['customers']:
-            credits = sum(l['amount'] for l in result['ledger'] if l['customer_id']==c['id'] and l['kind']=='Tahsilat')
-            overdue = 0
-            debts = sorted((l for l in result['ledger'] if l['customer_id']==c['id'] and l['kind']=='Borç'),key=lambda l:(l['due_date'] or l['date'],l['id']))
-            for l in debts:
-                paid = min(credits,l['amount'])
-                credits -= paid
-                if l['due_date'] and l['due_date'] < today:
-                    overdue += l['amount']-paid
+            overdue = open_dues([l for l in result['ledger'] if l['customer_id']==c['id']],'Borç',today,today)[0]
             if overdue:
-                alerts.append({'type':'account','title':c['name'],'detail':f'Vadesi geçen tutar: {overdue/100:,.2f} TL','date':today,'target':'ledger'})
+                alerts.append({'type':'account','title':c['name'],'detail':f'Vadesi geçen tutar: {tl(overdue)}','date':today,'target':'ledger'})
+        # Tedarikçiye olan borçlar: geciken ve 7 gün içinde vadesi gelen ödemeler.
+        week = (date.today() + timedelta(days=7)).isoformat()
+        for t in result['suppliers']:
+            overdue, upcoming, first = open_dues([l for l in result['supplier_ledger'] if l['supplier_id']==t['id']],'Alış',today,week)
+            if overdue:
+                alerts.append({'type':'payable','title':t['name'],'detail':f'Vadesi geçen ödemeniz: {tl(overdue)}','date':today,'target':f"supplier/{t['id']}"})
+            elif upcoming:
+                alerts.append({'type':'payable','title':t['name'],'detail':f'Yaklaşan ödeme: {tl(upcoming)}','date':first,'target':f"supplier/{t['id']}"})
         result['alerts'] = sorted(alerts,key=lambda a:a['date'])
         return result
 
@@ -101,7 +151,12 @@ class App:
         with self.database.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             if resource == 'customers':
-                fields = {k:text(p.get(k),k=='name') for k in ['name','phone','email','tax_no','address','notes']}
+                fields = {k:text(p.get(k),k=='name') for k in ['name','phone','tax_no','address','notes']}
+                fields['email'] = email(p.get('email'))
+            elif resource == 'suppliers':
+                fields = {k:text(p.get(k),k=='name') for k in ['name','contact','phone','tax_no','address','iban','notes']}
+                fields['email'] = email(p.get('email'))
+                fields['payment_days'] = integer(p.get('payment_days',30),0,365)
             elif resource == 'compressors':
                 fields = dict(customer_id=integer(p.get('customer_id'),1),brand=text(p.get('brand'),True),model=text(p.get('model')),serial=text(p.get('serial'),True),capacity=integer(p.get('capacity'),1,100000),warranty_end=day(p['warranty_end']) if p.get('warranty_end') else None,notes=text(p.get('notes')))
                 if record_id:
@@ -109,7 +164,7 @@ class App:
                     if existing and existing['customer_id']!=fields['customer_id'] and db.execute('SELECT 1 FROM services WHERE compressor_id=? LIMIT 1',(record_id,)).fetchone():
                         raise ValueError('Servis geçmişi olan kompresörün müşterisi değiştirilemez; geçmiş hesap bağlantısı korunur.')
             elif resource == 'stock':
-                fields = dict(sku=text(p.get('sku'),True),name=text(p.get('name'),True),category=text(p.get('category')) or 'Parça',minimum=integer(p.get('minimum',2)),buy_price=money(p.get('buy_price',0)),sell_price=money(p.get('sell_price',0)),supplier=text(p.get('supplier')))
+                fields = dict(sku=text(p.get('sku'),True),name=text(p.get('name'),True),category=text(p.get('category')) or 'Parça',minimum=integer(p.get('minimum',2)),buy_price=money(p.get('buy_price',0)),sell_price=money(p.get('sell_price',0)),supplier_id=integer(p['supplier_id'],1) if p.get('supplier_id') else None)
                 if not record_id:
                     fields['quantity'] = integer(p.get('quantity',0))
             elif resource == 'stock-movement':
@@ -146,7 +201,7 @@ class App:
                 fields = dict(compressor_id=cid,date=dt,title=text(p.get('title'),True),operations=text(p.get('operations'),True),amount=amount,maintenance_months=months,next_maintenance=add_months(dt,months),status=status,parts=json.dumps(normalized))
                 rid = self.save(db,'services',fields)
                 if status=='Tamamlandı' and amount:
-                    self.save(db,'ledger',dict(customer_id=comp['customer_id'],date=dt,kind='Borç',amount=amount,description=fields['title'],due_date=day(p['due_date']) if p.get('due_date') else dt,source=f'service:{rid}'))
+                    self.save(db,'ledger',dict(customer_id=comp['customer_id'],date=dt,kind='Borç',amount=amount,description=fields['title'],due_date=due(p.get('due_date')) or dt,source=f'service:{rid}'))
                 return {'id':rid}
             elif resource == 'service-complete':
                 service = db.execute('SELECT s.*,k.customer_id FROM services s JOIN compressors k ON k.id=s.compressor_id WHERE s.id=?',(record_id,)).fetchone()
@@ -169,7 +224,61 @@ class App:
                 amount=money(p.get('amount',0))
                 if not amount:
                     raise ValueError('Tutar sıfırdan büyük olmalı.')
-                fields=dict(customer_id=integer(p.get('customer_id'),1),date=day(p.get('date')),kind=kind,amount=amount,description=text(p.get('description'),True),due_date=day(p['due_date']) if p.get('due_date') else None)
+                dt=day(p.get('date'))
+                fields=dict(customer_id=integer(p.get('customer_id'),1),date=dt,kind=kind,amount=amount,description=text(p.get('description'),True),due_date=due(p.get('due_date')))
+            elif resource == 'supplier-ledger':
+                if record_id:
+                    raise ValueError('Tedarikçi hareketi değiştirilemez; düzeltici hareket ekleyin.')
+                kind = p.get('kind')
+                if kind not in ['Alış','Ödeme']:
+                    raise ValueError('Geçersiz hareket türü.')
+                amount=money(p.get('amount',0))
+                if not amount:
+                    raise ValueError('Tutar sıfırdan büyük olmalı.')
+                dt=day(p.get('date'))
+                rid=self.save(db,'supplier_ledger',dict(supplier_id=integer(p.get('supplier_id'),1),date=dt,kind=kind,amount=amount,description=text(p.get('description'),True),due_date=due(p.get('due_date')) if kind=='Alış' else None))
+                return {'id':rid}
+            elif resource == 'purchases':
+                if record_id:
+                    raise ValueError('Alış belgesi değiştirilemez; düzeltme için stok ve tedarikçi hareketi girin.')
+                supplier=db.execute('SELECT * FROM suppliers WHERE id=?',(integer(p.get('supplier_id'),1),)).fetchone()
+                if not supplier:
+                    raise ValueError('Tedarikçi bulunamadı.')
+                items=p.get('items',[])
+                if not isinstance(items,list) or not 1<=len(items)<=100:
+                    raise ValueError('En az bir, en fazla 100 alış kalemi ekleyin.')
+                dt=day(p.get('date'))
+                due_date=due(p.get('due_date')) or (date.fromisoformat(dt)+timedelta(days=supplier['payment_days'])).isoformat()
+                clean=[]
+                subtotal=tax=0
+                for i in items:
+                    q=integer(i.get('quantity'),1,100000)
+                    price=money(i.get('unit_price'))
+                    rate=integer(i.get('tax_rate',20),0,100)
+                    subtotal+=q*price
+                    tax+=int((Decimal(q*price)*rate/100).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
+                    clean.append(dict(stock_id=integer(i['stock_id'],1) if i.get('stock_id') else None,description=text(i.get('description'),True),quantity=q,unit_price=price,tax_rate=rate))
+                rid=self.save(db,'purchases',dict(supplier_id=supplier['id'],date=dt,document_no=text(p.get('document_no')),due_date=due_date,notes=text(p.get('notes')),subtotal=subtotal,tax=tax,total=subtotal+tax))
+                label=f'AL-{rid:04d}'
+                for i in clean:
+                    self.save(db,'purchase_items',dict(purchase_id=rid,**i))
+                    if i['stock_id']:
+                        # Alış stoğu artırır; birim alış fiyatı son alış maliyetiyle güncellenir.
+                        self.move_stock(db,i['stock_id'],i['quantity'],f"Alış {label} · {supplier['name']}")
+                        db.execute('UPDATE stock SET buy_price=? WHERE id=?',(i['unit_price'],i['stock_id']))
+                if subtotal+tax:
+                    self.save(db,'supplier_ledger',dict(supplier_id=supplier['id'],date=dt,kind='Alış',amount=subtotal+tax,description=f"{label} alış"+(f" · {text(p.get('document_no'))}" if p.get('document_no') else ''),due_date=due_date,source=f'purchase:{rid}'))
+                return {'id':rid}
+            elif resource == 'delete':
+                table=p.get('table')
+                if table not in DELETABLE or not record_id:
+                    raise ValueError('Bu kayıt silinemez.')
+                for child,column in DELETABLE[table]:
+                    if db.execute(f'SELECT 1 FROM {child} WHERE {column}=? LIMIT 1',(record_id,)).fetchone():
+                        raise ValueError('Bu karta bağlı kayıtlar var; geçmişi korumak için silinemez.')
+                if db.execute(f'DELETE FROM {table} WHERE id=?',(record_id,)).rowcount!=1:
+                    raise ValueError('Kayıt bulunamadı.')
+                return {'ok':True}
             elif resource == 'events':
                 tm=text(p.get('time') or '09:00')
                 from datetime import time
@@ -210,7 +319,10 @@ class App:
                 db.execute("UPDATE invoices SET status='Satış' WHERE id=?",(record_id,))
                 return {'ok':True}
             elif resource == 'settings':
-                db.execute("INSERT OR REPLACE INTO settings VALUES ('company',?)",(text(p.get('company'),True),))
+                values={k:text(p.get(k),k=='company') for k in COMPANY_FIELDS}
+                values['company_email']=email(values['company_email'])
+                for k,v in values.items():
+                    db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)',(k,v))
                 return {'ok':True}
             else:
                 raise ValueError('Bilinmeyen işlem.')
