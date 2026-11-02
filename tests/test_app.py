@@ -61,6 +61,18 @@ class DomainTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.app.mutate('invoice-convert',{},iid)
         self.assertEqual(self.app.snapshot()['customers'][0]['balance'],24060)
         self.assertEqual(self.app.snapshot()['stock'][0]['quantity'],3)
+    def test_proforma_can_be_edited_until_converted(self):
+        iid=self.invoice()
+        other=self.app.mutate('customers',{'name':'Yeni müşteri'})['id']
+        self.app.mutate('invoices',dict(customer_id=other,date='2026-01-05',valid_until='2026-01-20',notes='Revize',items=[dict(description='İşçilik',quantity=1,unit_price='500',tax_rate=20)]),iid)
+        s=self.app.snapshot()
+        self.assertEqual(len(s['invoices']),1)
+        self.assertEqual((s['invoices'][0]['customer_id'],s['invoices'][0]['total'],s['invoices'][0]['notes']),(other,60000,'Revize'))
+        self.assertEqual([x['description'] for x in s['invoice_items']],['İşçilik'])
+        self.app.mutate('invoice-convert',{},iid)
+        with self.assertRaises(ValueError):
+            self.app.mutate('invoices',dict(customer_id=other,date='2026-01-05',valid_until='2026-01-20',items=[dict(description='X',quantity=1,unit_price=1)]),iid)
+        self.assertEqual(self.app.snapshot()['invoices'][0]['total'],60000)
     def test_failed_sale_keeps_proforma_and_balance(self):
         iid=self.invoice(6)
         with self.assertRaises(ValueError): self.app.mutate('invoice-convert',{},iid)

@@ -38,7 +38,7 @@ Alternatif olarak depoyu GitHub'a aktardıktan sonra Actions → **Windows EXE**
 - Servis kaydı, yapılan işlemler, parça listesi, toplam servis bedeli ve sonraki bakım aralığı. Bekleyen/işlemde servisler sonradan tamamlanabilir. Tamamlanan servis stok ve cari hesabı **tek veritabanı işlemiyle** günceller.
 - Stok kartları, kategori, tedarikçi, alış/satış fiyatı, açılış adedi ve alt sınır; açıklamalı stok giriş/çıkışı ve hareket geçmişi. Stok adedi eksiye düşmez. Adetler tam sayıdır.
 - Cari borç/tahsilat, vade takibi, müşteri avansları. Tahsilatlar vade sırasıyla borçlara dağıtılarak geciken bakiye hesaplanır. Kesinleşen hareketler değiştirilemez; hata düzeltmesi için açıklamalı karşı hareket girilir.
-- Çok kalemli ve kalem bazında KDV oranlı proforma; yazdırma/PDF çıktısı. Proforma stok/bakiye etkilemez. Satışa dönüşüm bağlı stokları düşürür ve KDV dahil cari borç oluşturur; ikinci kez dönüşüm engellenir.
+- Çok kalemli ve kalem bazında KDV oranlı proforma; yazdırma/PDF çıktısı. Proforma stok/bakiye etkilemez ve satışa dönüşene kadar düzenlenebilir. Satışa dönüşüm bağlı stokları düşürür ve KDV dahil cari borç oluşturur; ikinci kez dönüşüm engellenir.
 - Tedarikçi kartları: yetkili, telefon, e-posta, vergi no, IBAN ve gün olarak ödeme vadesi. Stok kartları tedarikçiye bağlanır; kritik stok uyarısında tedarikçi adı ve telefonu görünür.
 - Alış kaydı (AL-0001…): çok kalemli, kalem bazında KDV'li. Stoğa bağlı kalemler stoğu artırır ve ürünün alış fiyatını son maliyetle günceller; KDV dahil toplam tedarikçi borcu olarak işlenir. Vade boşsa tedarikçinin ödeme vadesi kullanılır. Alış belgeleri değiştirilemez.
 - Tedarikçi cari hesabı: ödeme ve açılış/borç kaydı. Ödemeler en eski vadeli borçlara dağıtılır; geciken ve 7 gün içinde vadesi gelen ödemeler uyarı merkezinde görünür.
@@ -71,7 +71,7 @@ python3 -m unittest discover -s tests -v
 node --check web/app.js
 ```
 
-28 otomatik test gerçek SQLite üzerinde stok/cari atomikliği, proforma dönüşümü, mükerrer işlem koruması, yetersiz stok geri alma, tarih/KDV hesapları, öneriler, bakiye/vade uyarıları, yedekten açılış, tedarikçi alış/ödeme/uyarıları, sürüm 1 veritabanından geçiş, silme korumaları ve yerel HTTP oturum güvenliğini kapsar. Node yalnızca isteğe bağlı JavaScript sözdizimi kontrolünde kullanılır, uygulamanın çalışması için gerekli değildir.
+29 otomatik test gerçek SQLite üzerinde stok/cari atomikliği, proforma dönüşümü, mükerrer işlem koruması, yetersiz stok geri alma, tarih/KDV hesapları, öneriler, bakiye/vade uyarıları, yedekten açılış, tedarikçi alış/ödeme/uyarıları, sürüm 1 veritabanından geçiş, silme korumaları ve yerel HTTP oturum güvenliğini kapsar. Node yalnızca isteğe bağlı JavaScript sözdizimi kontrolünde kullanılır, uygulamanın çalışması için gerekli değildir.
 
 ## Mimari ve mobil altyapı
 

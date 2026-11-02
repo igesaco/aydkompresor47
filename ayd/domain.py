@@ -287,7 +287,12 @@ class App:
                 fields=dict(customer_id=integer(p['customer_id'],1) if p.get('customer_id') else None,date=day(p.get('date')),time=tm,title=text(p.get('title'),True),notes=text(p.get('notes')),done=integer(p.get('done',0),0,1))
             elif resource == 'invoices':
                 if record_id:
-                    raise ValueError('Teklif değiştirilemez; yeni teklif oluşturun.')
+                    # Yalnızca satışa dönüşmemiş teklif düzenlenebilir; satış stok ve cariyi etkilediği için korunur.
+                    current=db.execute('SELECT status FROM invoices WHERE id=?',(record_id,)).fetchone()
+                    if not current:
+                        raise ValueError('Teklif bulunamadı.')
+                    if current['status']!='Proforma':
+                        raise ValueError('Satışa dönüşmüş teklif değiştirilemez.')
                 items=p.get('items',[])
                 if not isinstance(items,list) or not 1<=len(items)<=100:
                     raise ValueError('En az bir, en fazla 100 teklif kalemi ekleyin.')
@@ -303,7 +308,8 @@ class App:
                 dt,valid=day(p.get('date')),day(p.get('valid_until'))
                 if valid<dt:
                     raise ValueError('Geçerlilik tarihi teklif tarihinden önce olamaz.')
-                rid=self.save(db,'invoices',dict(customer_id=integer(p.get('customer_id'),1),date=dt,valid_until=valid,notes=text(p.get('notes')),subtotal=subtotal,tax=tax,total=subtotal+tax))
+                rid=self.save(db,'invoices',dict(customer_id=integer(p.get('customer_id'),1),date=dt,valid_until=valid,notes=text(p.get('notes')),subtotal=subtotal,tax=tax,total=subtotal+tax),record_id)
+                db.execute('DELETE FROM invoice_items WHERE invoice_id=?',(rid,))
                 for i in clean:
                     self.save(db,'invoice_items',dict(invoice_id=rid,**i))
                 return {'id':rid}
